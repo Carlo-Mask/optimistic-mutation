@@ -1,0 +1,8 @@
+
+# https://rust-lang.github.io/rustfmt/?version=v1.6.0
+
+# https://rust-lang.github.io/rustfmt/?version=v1.6.0&search=#hard_tabs
+hard_tabs = true
+
+# https://rust-lang.github.io/rustfmt/?version=v1.6.0&search=#use_field_init_shorthand
+use_field_init_shorthand = true
