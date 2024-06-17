@@ -19,26 +19,52 @@ pub struct WeakCowRc<T: ?Sized> {
 }
 
 impl<T> CowRc<T> {
+	/// Constructs a new `CowRc<T>`.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use optimistic_mutation::rc::CowRc;
+	///
+	/// let five = CowRc::new(5);
+	/// ```
 	pub fn new(value: T) -> Self {
 		pipeline!(value |> Rc::new |> Self::from_rc)
 	}
 }
 
 impl<T: ?Sized> CowRc<T> {
+	/// Constructs a new `CowRc<T>` from a `Rc<T>`
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use std::rc::Rc;
+	/// use optimistic_mutation::rc::CowRc;
+	///
+	/// let five = CowRc::from_rc(Rc::new(5));
+	/// ```
+	#[must_use]
 	pub const fn from_rc(rc: Rc<T>) -> Self {
 		Self { rc }
 	}
 
+	/// Return true if this `CowRc<T>` needs cloning to mutate
+	/// cloning is necessary when the strong count is more than one
+	/// but does not depend on the weak count
 	#[inline]
+	#[must_use]
 	pub fn needs_cloning_to_mutate(this: &Self) -> bool {
 		pipeline!(&this.rc => Rc::strong_count) > 1
 	}
 
 	#[inline]
+	#[must_use]
 	pub fn is_unique(this: &Self) -> bool {
 		!Self::needs_cloning_to_mutate(this) && Rc::weak_count(&this.rc) == 0
 	}
 
+	#[must_use = "this returns a new `Weak` pointer, without modifying the original `CowRc`"]
 	pub fn downgrade(this: &Self) -> WeakCowRc<T> {
 		pipeline!(&this.rc => Rc::downgrade => WeakCowRc::from_weak)
 	}
@@ -49,6 +75,22 @@ where
 	U: ?Sized,
 	Rc<U>: From<T>,
 {
+	/// Converts a generic type `T` into an `CowRc<T>`
+	///
+	/// The conversion accepts anything that can be turned [`Into`] an `Rc<T>`
+	/// and produces a `CowRc<T>` containing a [`Rc`] created from `t`
+	///
+	/// # Example
+	/// ```rust
+	/// # use std::rc::Rc;
+	/// # use optimistic_mutation::rc::CowRc;
+	/// let x = 5;
+	/// let  cow_rc = CowRc::from(x);
+	///
+	/// assert_eq!(cow_rc, CowRc::new(x));
+	/// assert_eq!(cow_rc.rc, Rc::from(x));
+	/// ```
+	#[inline]
 	fn from(value: T) -> Self {
 		pipeline!(value |> Rc::from |> Self::from_rc)
 	}
@@ -61,9 +103,14 @@ impl<T: ?Sized> AsRef<T> for CowRc<T> {
 }
 
 impl<T: ?Sized + Clone> AsMut<T> for CowRc<T> {
+	/// Makes a mutable reference into the given `CowRc`. Has the same effect as dereferencing it.
+	///
+	/// Even though [`AsMut`] is supposed to be used to do cheap mutable-to-mutable reference conversion,
+	/// given the nature of `CowRc`, this performance hit is acceptable
+	///
+	/// See [`DerefMut` implementation for `CowRc`](CowRc::<T>::deref_mut) for details
 	fn as_mut(&mut self) -> &mut T {
-		// make_mut doit potentiellement cloner mais on accepte le coût
-		pipeline!(&mut self.rc => Rc::make_mut)
+		self
 	}
 }
 
@@ -76,31 +123,101 @@ impl<T: ?Sized> Deref for CowRc<T> {
 }
 
 impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
+	/// Mutably dereferences the given `CowRc` using `*cow_rc = 1` notation.
+	///
+	/// If there are other `CowRc` pointers to the same allocation, then `deref_mut` will
+	/// [`clone`](Clone::clone) the inner value to a new allocation to ensure unique ownership.
+	/// This is also referred to as clone-on-write.
+	///
+	/// Even though [`DerefMut`] is supposed to be used for cheap dereferencing,
+	/// given the nature of `CowRc`, this performance hit is acceptable
+	///
+	/// If there are no other `CowRc` pointers to this allocation and any number (including 0) of [`WeakCowRc`] pointers,
+	/// then any existing [`WeakCowRc`] pointers will be disassociated and the inner value will not be cloned.
+	/// This is referred to as optimistic mutation.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use optimistic_mutation::rc::CowRc;
+	///
+	/// let mut data = CowRc::new(5);
+	///
+	/// *data += 1;         // Won't clone anything (optimistic mutation)
+	/// let mut other_data = CowRc::clone(&data); // Won't clone inner data
+	/// *data += 1;         // Clones inner data
+	/// *data += 1;         // Won't clone anything
+	/// *other_data *= 2;   // Won't clone anything
+	///
+	/// // Now `data` and `other_data` point to different allocations.
+	/// assert_eq!(*data, 8);
+	/// assert_eq!(*other_data, 12);
+	/// ```
+	///
+	/// If there are [`WeakCowRc`] pointers, but no other strong pointer,
+	/// no cloning occurs and the weak pointers will be disassociated
+	/// (as if the data was cloned and the old `CowRc` strong count dropped to 0):
+	/// ```
+	/// use optimistic_mutation::rc::CowRc;
+	///
+	/// let mut data = CowRc::new(75);
+	/// let weak = CowRc::downgrade(&data);
+	///
+	/// assert_eq!(*data, 75);
+	/// assert_eq!(*weak.upgrade().unwrap(), 75);
+	///
+	/// *data += 1;
+	///
+	/// assert_eq!(*data, 76);
+	/// assert!(weak.upgrade().is_none());
+	/// ```
+	///
+	/// However, if there are other strong references to prevent the strong count to drop to 0,
+	/// cloning occurs and [`WeakCowRc`] pointers will continue to point to the old data
+	/// ```
+	/// use optimistic_mutation::rc::CowRc;
+	///
+	/// let mut data = CowRc::new(75);
+	/// let clone = CowRc::clone(&data);
+	/// let weak = CowRc::downgrade(&data);
+	///
+	/// assert_eq!(*weak.upgrade().unwrap(), 75);
+	///
+	/// *data += 1;
+	///
+	/// assert_eq!(*data, 76);
+	/// assert_eq!(*weak.upgrade().unwrap(), 75);
+	/// drop(clone);
+	/// assert!(weak.upgrade().is_none())
+	/// ```
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		// makes implicit what was explicit
-		self.as_mut()
+		pipeline!(&mut self.rc => Rc::make_mut)
 	}
 }
 
 impl<T> WeakCowRc<T> {
+	#[must_use]
 	pub const fn new() -> Self {
 		pipeline!(Weak::new() => Self::from_weak)
 	}
 }
 
 impl<T: ?Sized> WeakCowRc<T> {
+	#[must_use]
 	pub const fn from_weak(weak: Weak<T>) -> Self {
 		Self { weak }
 	}
 
 	#[must_use = "this returns a new `CowRc`, without modifying the original weak pointer"]
-	pub fn upgrade(this: &Self) -> Option<CowRc<T>> {
-		pipeline!(&this.weak => Weak::upgrade).map(CowRc::from_rc)
+	pub fn upgrade(&self) -> Option<CowRc<T>> {
+		self.weak.upgrade().map(CowRc::from_rc)
 	}
 }
 
 #[cfg(test)]
 mod tests {
+	use std::rc::Rc;
+
 	use crate::rc::CowRc;
 
 	#[derive(Debug, Clone)]
@@ -132,5 +249,44 @@ mod tests {
 
 		assert_eq!(person1.purse.nb_of_keys, 4); // Original person is unaffected
 		assert_eq!(person2.purse.nb_of_keys, 3);
+		assert_eq!(person1.age, 46);
+	}
+
+	#[test]
+	fn from_str() {
+		let str_slice_reference: &str = "Hello";
+
+		let cow_rc: CowRc<str> = CowRc::from(str_slice_reference);
+
+		assert_eq!(&*cow_rc, str_slice_reference);
+	}
+
+	#[test]
+	fn from_rc() {
+		let rc = Rc::new(5);
+		// Works because Rc<i32> implements From<Rc<i32>>
+		let cow_rc: CowRc<i32> = CowRc::from(rc);
+
+		assert_eq!(cow_rc.rc, Rc::new(5));
+	}
+
+	#[test]
+	fn no_clone_when_unique() {
+		#[derive(Debug)]
+		struct TrapClone {
+			int: i32,
+		}
+
+		impl Clone for TrapClone {
+			fn clone(&self) -> Self {
+				panic!("Test failed: clone was called")
+			}
+		}
+
+		let mut unique_cow_rc = CowRc::new(TrapClone { int: 0 });
+		unique_cow_rc.int += 1;
+		unique_cow_rc.as_mut().int += 1;
+
+		assert_eq!(unique_cow_rc.int, 2);
 	}
 }

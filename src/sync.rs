@@ -28,15 +28,18 @@ impl<T: ?Sized> CowArc<T> {
 	}
 
 	#[inline]
+	#[must_use]
 	pub fn needs_cloning_to_mutate(this: &Self) -> bool {
 		pipeline!(&this.arc => Arc::strong_count) > 1
 	}
 
 	#[inline]
+	#[must_use]
 	pub fn is_unique(this: &Self) -> bool {
 		!Self::needs_cloning_to_mutate(this) && Arc::weak_count(&this.arc) == 0
 	}
 
+	#[must_use]
 	pub fn downgrade(this: &Self) -> WeakCowArc<T> {
 		pipeline!(&this.arc => Arc::downgrade => WeakCowArc::from_weak)
 	}
@@ -102,11 +105,10 @@ mod tests {
 
 	#[derive(Debug, Clone)]
 	struct Person {
-		age: u8, // data small enough to be passed by value rather than reference
 		purse: CowArc<Purse>,
 	}
 
-	// Let's pretend it's a big struct
+	// Let's pretend it's a big struct so it makes sense to put it in a CowRc
 	#[derive(Debug, Clone)]
 	struct Purse {
 		nb_of_keys: u8,
@@ -115,12 +117,10 @@ mod tests {
 	#[test]
 	fn sandbox() {
 		let person1 = Person {
-			age: 46,
 			purse: CowArc::new(Purse { nb_of_keys: 4 }),
 		};
 
 		let mut person2 = Person {
-			age: 35,
 			purse: person1.purse.clone(), // Just a strong count increment
 		};
 
