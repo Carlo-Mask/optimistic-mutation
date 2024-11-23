@@ -132,7 +132,7 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	/// Even though [`DerefMut`] is supposed to be used for cheap dereferencing,
 	/// given the nature of `CowRc`, this performance hit is acceptable
 	///
-	/// If there are no other `CowRc` pointers to this allocation and any number (including 0) of [`WeakCowRc`] pointers,
+	/// If there are no other `CowRc` pointers to this allocation,
 	/// then any existing [`WeakCowRc`] pointers will be disassociated and the inner value will not be cloned.
 	/// This is referred to as optimistic mutation.
 	///
@@ -155,7 +155,7 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	/// ```
 	///
 	/// If there are [`WeakCowRc`] pointers, but no other strong pointer,
-	/// no cloning occurs and the weak pointers will be disassociated
+	/// no cloning occurs, but the data is moved and the weak pointers will be disassociated
 	/// (as if the data was cloned and the old `CowRc` strong count dropped to 0):
 	/// ```
 	/// use optimistic_mutation::rc::CowRc;
@@ -172,7 +172,7 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	/// assert!(weak.upgrade().is_none());
 	/// ```
 	///
-	/// However, if there are other strong references to prevent the strong count to drop to 0,
+	/// However, if there are other strong references to prevent the strong count dropping to 0,
 	/// cloning occurs and [`WeakCowRc`] pointers will continue to point to the old data
 	/// ```
 	/// use optimistic_mutation::rc::CowRc;
@@ -216,9 +216,9 @@ impl<T: ?Sized> WeakCowRc<T> {
 
 #[cfg(test)]
 mod tests {
-	use std::rc::Rc;
-
 	use crate::rc::CowRc;
+	use std::rc::Rc;
+	use sugaru::pipeline;
 
 	#[derive(Debug, Clone)]
 	struct Person {
@@ -288,5 +288,9 @@ mod tests {
 		unique_cow_rc.as_mut().int += 1;
 
 		assert_eq!(unique_cow_rc.int, 2);
+
+		let weak_cow_rc = pipeline!(&unique_cow_rc => CowRc::downgrade);
+		unique_cow_rc.int += 1;
+		assert!(weak_cow_rc.upgrade().is_none());
 	}
 }

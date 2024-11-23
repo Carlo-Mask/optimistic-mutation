@@ -63,7 +63,7 @@ impl<T: ?Sized> AsRef<T> for CowArc<T> {
 
 impl<T: ?Sized + Clone> AsMut<T> for CowArc<T> {
 	fn as_mut(&mut self) -> &mut T {
-		pipeline!(&mut self.arc => Arc::make_mut)
+		self
 	}
 }
 
@@ -77,18 +77,19 @@ impl<T: ?Sized> Deref for CowArc<T> {
 
 impl<T: ?Sized + Clone> DerefMut for CowArc<T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		// makes implicit what was explicit
-		self.as_mut()
+		pipeline!(&mut self.arc => Arc::make_mut)
 	}
 }
 
 impl<T> WeakCowArc<T> {
+	#[must_use]
 	pub const fn new() -> Self {
 		pipeline!(Weak::new() => Self::from_weak)
 	}
 }
 
 impl<T: ?Sized> WeakCowArc<T> {
+	#[must_use]
 	pub const fn from_weak(weak: Weak<T>) -> Self {
 		Self { weak }
 	}
