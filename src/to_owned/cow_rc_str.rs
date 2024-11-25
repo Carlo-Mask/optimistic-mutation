@@ -1,10 +1,10 @@
 use crate::rc::CowRc;
 use std::{
-	borrow::Borrow,
+	borrow::{Borrow, Cow},
+	ffi::OsStr,
 	fmt::{Debug, Display, Formatter},
 	ops::Deref,
 	ptr,
-	rc::Rc,
 };
 use sugaru::pipeline;
 
@@ -22,22 +22,32 @@ impl ToCowRcStr {
 	}
 
 	pub fn from_str_mut(string_slice: &mut str) -> &mut Self {
-		let ptr = ptr::from_mut(string_slice) as *mut Self;
+		let ptr = pipeline!(string_slice |> ptr::from_mut |> Self::from_str_mut_ptr);
 		unsafe { &mut *ptr }
+	}
+
+	const fn from_str_mut_ptr(string_slice: *mut str) -> *mut Self {
+		string_slice as _
 	}
 }
 
 impl ToOwned for ToCowRcStr {
-	type Owned = Rc<str>;
+	type Owned = CowRc<str>;
 
 	fn to_owned(&self) -> Self::Owned {
-		Rc::from(&self.str)
+		CowRc::from(&self.str)
 	}
 }
 
-impl Borrow<ToCowRcStr> for Rc<str> {
+impl Borrow<ToCowRcStr> for CowRc<str> {
 	fn borrow(&self) -> &ToCowRcStr {
 		ToCowRcStr::from_str(self)
+	}
+}
+
+impl Borrow<str> for CowRc<str> {
+	fn borrow(&self) -> &str {
+		self
 	}
 }
 
@@ -55,6 +65,15 @@ impl AsRef<str> for ToCowRcStr {
 	}
 }
 
+impl<AsRefStr> AsRef<AsRefStr> for ToCowRcStr
+where
+	str: AsRef<AsRefStr>,
+{
+	fn as_ref(&self) -> &AsRefStr {
+		self.str.as_ref()
+	}
+}
+
 impl<'a> From<&'a str> for &'a ToCowRcStr {
 	fn from(value: &'a str) -> Self {
 		ToCowRcStr::from_str(value)
@@ -64,6 +83,72 @@ impl<'a> From<&'a str> for &'a ToCowRcStr {
 impl<'a> From<&'a ToCowRcStr> for &'a str {
 	fn from(value: &'a ToCowRcStr) -> Self {
 		&value.str
+	}
+}
+
+impl From<CowRc<str>> for String {
+	fn from(value: CowRc<str>) -> Self {
+		value.deref().into()
+	}
+}
+
+impl From<&ToCowRcStr> for Box<ToCowRcStr> {
+	fn from(value: &ToCowRcStr) -> Self {
+		let boxed: Box<str> = Box::from(&value.str);
+		Self::from(boxed)
+	}
+}
+
+impl From<Box<str>> for Box<ToCowRcStr> {
+	fn from(value: Box<str>) -> Self {
+		unsafe {
+			pipeline!(
+				value
+				|> Box::into_raw
+				|> ToCowRcStr::from_str_mut_ptr
+				|> Self::from_raw
+			)
+		}
+	}
+}
+
+impl<'a> From<&'a ToCowRcStr> for Cow<'a, ToCowRcStr> {
+	fn from(value: &'a ToCowRcStr) -> Self {
+		Cow::Borrowed(value)
+	}
+}
+
+impl From<CowRc<str>> for Cow<'_, ToCowRcStr> {
+	fn from(value: CowRc<str>) -> Self {
+		Cow::Owned(value)
+	}
+}
+
+impl CowRc<str> {
+	#[must_use]
+	/// Borrows this String as a [`Cow`],
+	/// avoiding cloning when the string is not mutated.
+	/// Please note cloning is cheap if this Rc is unique.
+	/// Use [`DerefMut`] if you're sure you need to mutate
+	pub fn borrow_cow(&self) -> Cow<'_, ToCowRcStr> {
+		Cow::Borrowed(ToCowRcStr::from_str(self))
+	}
+}
+
+impl From<Cow<'_, ToCowRcStr>> for Box<ToCowRcStr> {
+	fn from(value: Cow<'_, ToCowRcStr>) -> Self {
+		match value {
+			Cow::Borrowed(s) => Self::from(s),
+			Cow::Owned(s) => pipeline!(&s => ToCowRcStr::from_str => Self::from),
+		}
+	}
+}
+
+impl<'a> TryFrom<&'a OsStr> for &'a ToCowRcStr {
+	type Error = <&'a str as TryFrom<&'a OsStr>>::Error;
+
+	fn try_from(value: &'a OsStr) -> Result<Self, Self::Error> {
+		<&'a str>::try_from(value).map(ToCowRcStr::from_str)
 	}
 }
 
@@ -88,12 +173,9 @@ impl Default for &ToCowRcStr {
 	}
 }
 
-impl<'a, Item> FromIterator<Item> for &'a ToCowRcStr
-where
-	&'a str: FromIterator<Item>,
-{
-	fn from_iter<Iterator: IntoIterator<Item = Item>>(iter: Iterator) -> Self {
-		pipeline!(iter => <&str>::from_iter => ToCowRcStr::from_str)
+impl Default for Box<ToCowRcStr> {
+	fn default() -> Self {
+		Self::from(<&ToCowRcStr>::default())
 	}
 }
 
@@ -102,7 +184,7 @@ where
 	String: FromIterator<Item>,
 {
 	fn from_iter<Iterator: IntoIterator<Item = Item>>(iter: Iterator) -> Self {
-		pipeline!(iter => String::from_iter => Self::from)
+		pipeline!(iter |> String::from_iter |> Self::from)
 	}
 }
 
@@ -113,7 +195,14 @@ mod test {
 	#[test]
 	fn deref_test() {
 		let to_rc_str: &ToCowRcStr = ToCowRcStr::from_str("Toto");
-		let rc_str: Rc<str> = to_rc_str.to_owned();
+		let rc_str: CowRc<str> = to_rc_str.to_owned();
 		assert_eq!(rc_str.len(), 4);
+	}
+
+	#[test]
+	fn cow() {
+		let cow: Cow<'_, ToCowRcStr> = pipeline!("toto" |> CowRc::from |> Cow::Owned);
+		// Cow deref sur ToCowRcStr qui deref sur str
+		assert_eq!(cow.len(), 4); // Le double deref a bien marché
 	}
 }
