@@ -9,7 +9,7 @@ use sugaru::pipeline;
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CowRc<T: ?Sized> {
-	// Private to avoid name collision with a T containing a field named rc 
+	// Private to avoid name collision with a T containing a field named rc
 	rc: Rc<T>,
 }
 
@@ -51,7 +51,7 @@ impl<T: ?Sized> CowRc<T> {
 	pub const fn from_rc(rc: Rc<T>) -> Self {
 		Self { rc }
 	}
-	
+
 	#[must_use]
 	pub const fn as_rc(this: &Self) -> &Rc<T> {
 		&this.rc
@@ -61,12 +61,12 @@ impl<T: ?Sized> CowRc<T> {
 	pub fn as_rc_mut(this: &mut Self) -> &mut Rc<T> {
 		&mut this.rc
 	}
-	
+
 	#[must_use]
-	pub fn unwrap(this: Self) -> Rc<T> {
+	pub fn unwrap_rc(this: Self) -> Rc<T> {
 		this.rc
 	}
-	
+
 	/// Return true if this `CowRc<T>` needs cloning to mutate
 	/// cloning is necessary when the strong count is more than one
 	/// but does not depend on the weak count
@@ -106,7 +106,7 @@ where
 	/// let  cow_rc = CowRc::from(x);
 	///
 	/// assert_eq!(cow_rc, CowRc::new(x));
-	/// assert_eq!(cow_rc.rc, Rc::from(x));
+	/// assert_eq!(CowRc::unwrap_rc(cow_rc), Rc::from(x));
 	/// ```
 	#[inline]
 	fn from(value: T) -> Self {
@@ -247,10 +247,7 @@ impl<T: ?Sized> WeakCowRc<T> {
 #[cfg(test)]
 mod tests {
 	use crate::rc::CowRc;
-	use std::{
-		ops::DerefMut,
-		rc::Rc
-	};
+	use std::{ops::DerefMut, rc::Rc};
 	use sugaru::pipeline;
 
 	#[derive(Debug, Clone)]

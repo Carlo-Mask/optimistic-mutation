@@ -5,6 +5,7 @@ use std::{
 	fmt::{Debug, Display, Formatter},
 	ops::Deref,
 	ptr,
+	rc::Rc,
 };
 use sugaru::pipeline;
 
@@ -24,6 +25,10 @@ impl ToCowRcStr {
 	pub fn from_str_mut(string_slice: &mut str) -> &mut Self {
 		let ptr = pipeline!(string_slice |> ptr::from_mut |> Self::from_str_mut_ptr);
 		unsafe { &mut *ptr }
+	}
+
+	const fn from_str_ptr(string_slice: *const str) -> *const Self {
+		string_slice as _
 	}
 
 	const fn from_str_mut_ptr(string_slice: *mut str) -> *mut Self {
@@ -92,20 +97,36 @@ impl From<CowRc<str>> for String {
 	}
 }
 
-impl From<&ToCowRcStr> for Box<ToCowRcStr> {
+impl From<&ToCowRcStr> for Box<str> {
 	fn from(value: &ToCowRcStr) -> Self {
-		let boxed: Box<str> = Box::from(&value.str);
-		Self::from(boxed)
+		Self::from(&value.str)
 	}
 }
 
-impl From<Box<str>> for Box<ToCowRcStr> {
-	fn from(value: Box<str>) -> Self {
+impl<IntoBoxedStr> From<IntoBoxedStr> for Box<ToCowRcStr>
+where
+	Box<str>: From<IntoBoxedStr>,
+{
+	fn from(value: IntoBoxedStr) -> Self {
 		unsafe {
-			pipeline!(
-				value
+			pipeline!(value
+				|> Box::from
 				|> Box::into_raw
 				|> ToCowRcStr::from_str_mut_ptr
+				|> Self::from_raw
+			)
+		}
+	}
+}
+
+impl From<&ToCowRcStr> for Rc<ToCowRcStr> {
+	fn from(value: &ToCowRcStr) -> Self {
+		#[allow(unused_braces)]
+		unsafe {
+			pipeline!({ &value.str }
+				|> Rc::<str>::from
+				|> Rc::into_raw
+				|> ToCowRcStr::from_str_ptr
 				|> Self::from_raw
 			)
 		}
@@ -132,15 +153,6 @@ impl CowRc<str> {
 	/// Use [`DerefMut`] if you're sure you need to mutate
 	pub fn borrow_cow(&self) -> Cow<'_, ToCowRcStr> {
 		Cow::Borrowed(ToCowRcStr::from_str(self))
-	}
-}
-
-impl From<Cow<'_, ToCowRcStr>> for Box<ToCowRcStr> {
-	fn from(value: Cow<'_, ToCowRcStr>) -> Self {
-		match value {
-			Cow::Borrowed(s) => Self::from(s),
-			Cow::Owned(s) => pipeline!(&s => ToCowRcStr::from_str => Self::from),
-		}
 	}
 }
 
