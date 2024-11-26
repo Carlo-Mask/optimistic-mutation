@@ -9,7 +9,8 @@ use sugaru::pipeline;
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CowRc<T: ?Sized> {
-	pub rc: Rc<T>,
+	// Private to avoid name collision with a T containing a field named rc 
+	rc: Rc<T>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -33,6 +34,8 @@ impl<T> CowRc<T> {
 	}
 }
 
+#[allow(clippy::wrong_self_convention)] // CowRc est un smart pointer et il faut éviter les méthodes qui ont des noms
+										// qui pourrait entrer en collision avec des méthodes de T
 impl<T: ?Sized> CowRc<T> {
 	/// Constructs a new `CowRc<T>` from a `Rc<T>`
 	///
@@ -48,7 +51,22 @@ impl<T: ?Sized> CowRc<T> {
 	pub const fn from_rc(rc: Rc<T>) -> Self {
 		Self { rc }
 	}
+	
+	#[must_use]
+	pub const fn as_rc(this: &Self) -> &Rc<T> {
+		&this.rc
+	}
 
+	#[must_use]
+	pub fn as_rc_mut(this: &mut Self) -> &mut Rc<T> {
+		&mut this.rc
+	}
+	
+	#[must_use]
+	pub fn unwrap(this: Self) -> Rc<T> {
+		this.rc
+	}
+	
 	/// Return true if this `CowRc<T>` needs cloning to mutate
 	/// cloning is necessary when the strong count is more than one
 	/// but does not depend on the weak count
@@ -93,24 +111,6 @@ where
 	#[inline]
 	fn from(value: T) -> Self {
 		pipeline!(value |> Rc::from |> Self::from_rc)
-	}
-}
-
-impl<T: ?Sized> AsRef<T> for CowRc<T> {
-	fn as_ref(&self) -> &T {
-		pipeline!(&self.rc => Rc::as_ref)
-	}
-}
-
-impl<T: ?Sized + Clone> AsMut<T> for CowRc<T> {
-	/// Makes a mutable reference into the given `CowRc`. Has the same effect as dereferencing it.
-	///
-	/// Even though [`AsMut`] is supposed to be used to do cheap mutable-to-mutable reference conversion,
-	/// given the nature of `CowRc`, this performance hit is acceptable
-	///
-	/// See [`DerefMut` implementation for `CowRc`](CowRc::<T>::deref_mut) for details
-	fn as_mut(&mut self) -> &mut T {
-		self
 	}
 }
 
@@ -195,6 +195,36 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	}
 }
 
+impl<T: ?Sized> AsRef<T> for CowRc<T> {
+	fn as_ref(&self) -> &T {
+		pipeline!(&self.rc => Rc::as_ref)
+	}
+}
+
+impl<T: ?Sized> AsRef<Rc<T>> for CowRc<T> {
+	fn as_ref(&self) -> &Rc<T> {
+		&self.rc
+	}
+}
+
+impl<T: ?Sized + Clone> AsMut<T> for CowRc<T> {
+	/// Makes a mutable reference into the given `CowRc`. Has the same effect as dereferencing it.
+	///
+	/// Even though [`AsMut`] is supposed to be used to do cheap mutable-to-mutable reference conversion,
+	/// given the nature of `CowRc`, this performance hit is acceptable
+	///
+	/// See [`DerefMut` implementation for `CowRc`](CowRc::<T>::deref_mut) for details
+	fn as_mut(&mut self) -> &mut T {
+		self
+	}
+}
+
+impl<T: ?Sized> AsMut<Rc<T>> for CowRc<T> {
+	fn as_mut(&mut self) -> &mut Rc<T> {
+		&mut self.rc
+	}
+}
+
 impl<T> WeakCowRc<T> {
 	#[must_use]
 	pub const fn new() -> Self {
@@ -217,7 +247,10 @@ impl<T: ?Sized> WeakCowRc<T> {
 #[cfg(test)]
 mod tests {
 	use crate::rc::CowRc;
-	use std::rc::Rc;
+	use std::{
+		ops::DerefMut,
+		rc::Rc
+	};
 	use sugaru::pipeline;
 
 	#[derive(Debug, Clone)]
@@ -285,7 +318,7 @@ mod tests {
 
 		let mut unique_cow_rc = CowRc::new(TrapClone { int: 0 });
 		unique_cow_rc.int += 1;
-		unique_cow_rc.as_mut().int += 1;
+		unique_cow_rc.deref_mut().int += 1;
 
 		assert_eq!(unique_cow_rc.int, 2);
 
