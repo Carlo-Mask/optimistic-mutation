@@ -146,11 +146,11 @@ impl From<CowRc<str>> for Cow<'_, ToCowRcStr> {
 }
 
 impl CowRc<str> {
-	#[must_use]
 	/// Borrows this String as a [`Cow`],
 	/// avoiding cloning when the string is not mutated.
 	/// Please note cloning is cheap if this Rc is unique.
 	/// Use [`DerefMut`] if you're sure you need to mutate
+	#[must_use]
 	pub fn borrow_cow(&self) -> Cow<'_, ToCowRcStr> {
 		Cow::Borrowed(ToCowRcStr::from_str(self))
 	}
