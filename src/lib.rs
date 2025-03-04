@@ -2,4 +2,7 @@
 
 pub mod rc;
 pub mod sync;
-mod to_owned;
+pub mod to_owned;
+
+#[cfg(feature = "serde")]
+pub mod serde;

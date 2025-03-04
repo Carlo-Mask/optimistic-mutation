@@ -10,5 +10,10 @@ enum_glob_use = "deny"
 pedantic =  { level = "warn", priority = -1 }
 nursery =  { level = "warn", priority = -1 }
 
+[features]
+serde = ["dep:serde"]
+
 [dependencies]
 sugaru = { git = "https://github.com/Carlo-Mask/sugaru" }
+
+serde = { version = "1.0.218", optional = true }
