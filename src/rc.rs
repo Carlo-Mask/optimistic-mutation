@@ -58,7 +58,7 @@ impl<T: ?Sized> CowRc<T> {
 	}
 
 	#[must_use]
-	pub fn as_rc_mut(this: &mut Self) -> &mut Rc<T> {
+	pub const fn as_rc_mut(this: &mut Self) -> &mut Rc<T> {
 		&mut this.rc
 	}
 
