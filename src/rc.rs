@@ -6,6 +6,37 @@ use std::{
 
 use sugaru::pipeline;
 
+/// Small wrapper around a [`Rc<T>`], short for Clone-on-write RC, that allows to call [`Rc::make_mut`] using the `*` dereferencing notation.
+///
+/// The effect is to allow to eliminate shared mutable memory from your program, that can be difficult to work with, but without eliminating mutations entirely.
+/// You can rest assured your data will not be unexpectedly mutated by another part of your program without sacrificing mutability entirely.
+/// Mutation will be used when possible, that is to say when memory is not shared, otherwise a clone will be used first.
+/// This is referred to as optimistic mutation.
+///
+/// # Example
+/// ```
+/// use optimistic_mutation::rc::CowRc;
+///
+/// #[derive(Clone)]
+/// struct Data { id: i32 }
+/// impl Data {
+///     pub fn increment_id(&mut self) {
+///         self.id += 1
+///     }
+/// }
+///
+/// fn main() {
+///     let mut data = CowRc::new(Data { id: 1 });
+///     data.increment_id(); // Cheap in place mutation
+///     assert_eq!(data.id, 2);
+///
+///     let mut other_data = CowRc::clone(&data); // No actual cloning just yet, just a cheap increment count, memory can be safely shared when it is immutable
+///     other_data.increment_id(); // Mutation is unfortunately not possible now, data is cloned
+///
+///     assert_eq!(data.id, 2); // The first variable is unaffected
+///     assert_eq!(other_data.id, 3);
+/// }
+/// ```
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CowRc<T: ?Sized> {
@@ -53,12 +84,12 @@ impl<T: ?Sized> CowRc<T> {
 	}
 
 	#[must_use]
-	pub const fn as_rc(this: &Self) -> &Rc<T> {
+	pub const fn get_rc(this: &Self) -> &Rc<T> {
 		&this.rc
 	}
 
 	#[must_use]
-	pub const fn as_rc_mut(this: &mut Self) -> &mut Rc<T> {
+	pub const fn get_mut_rc(this: &mut Self) -> &mut Rc<T> {
 		&mut this.rc
 	}
 
@@ -69,13 +100,14 @@ impl<T: ?Sized> CowRc<T> {
 
 	/// Return true if this `CowRc<T>` needs cloning to mutate
 	/// cloning is necessary when the strong count is more than one
-	/// but does not depend on the weak count
+	/// and does not depend on the weak count
 	#[inline]
 	#[must_use]
 	pub fn needs_cloning_to_mutate(this: &Self) -> bool {
 		pipeline!(&this.rc => Rc::strong_count) > 1
 	}
 
+	/// Returns true when the data is truly unique, when no other strong reference and no weak reference at all exists
 	#[inline]
 	#[must_use]
 	pub fn is_unique(this: &Self) -> bool {
@@ -103,7 +135,7 @@ where
 	/// # use std::rc::Rc;
 	/// # use optimistic_mutation::rc::CowRc;
 	/// let x = 5;
-	/// let  cow_rc = CowRc::from(x);
+	/// let cow_rc = CowRc::from(x);
 	///
 	/// assert_eq!(cow_rc, CowRc::new(x));
 	/// assert_eq!(CowRc::unwrap_rc(cow_rc), Rc::from(x));
@@ -122,19 +154,18 @@ impl<T: ?Sized> Deref for CowRc<T> {
 	}
 }
 
-impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
-	/// Mutably dereferences the given `CowRc` using `*cow_rc = 1` notation.
+impl<T: Clone> DerefMut for CowRc<T> {
+	/// Makes a mutable reference into the given `CowRc` using the [`Rc::make_mut`] function.
+	/// Even though [`DerefMut`] is supposed to be used for cheap dereferencing, this performance hit is considered acceptable
 	///
 	/// If there are other `CowRc` pointers to the same allocation, then `deref_mut` will
 	/// [`clone`](Clone::clone) the inner value to a new allocation to ensure unique ownership.
 	/// This is also referred to as clone-on-write.
 	///
-	/// Even though [`DerefMut`] is supposed to be used for cheap dereferencing,
-	/// given the nature of `CowRc`, this performance hit is acceptable
-	///
-	/// If there are no other `CowRc` pointers to this allocation,
-	/// then any existing [`WeakCowRc`] pointers will be disassociated and the inner value will not be cloned.
-	/// This is referred to as optimistic mutation.
+	/// If there are no other `CowRc` pointers to this allocation, the inner value will not be cloned.
+	/// This is referred to as optimistic mutation because one can hope the data is unique
+	/// and cheap in place mutation is possible instead of more expensive cloning.
+	/// In addition, any existing [`WeakCowRc`] pointers will be disassociated
 	///
 	/// # Examples
 	///
@@ -145,7 +176,7 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	///
 	/// *data += 1;         // Won't clone anything (optimistic mutation)
 	/// let mut other_data = CowRc::clone(&data); // Won't clone inner data
-	/// *data += 1;         // Clones inner data
+	/// *data += 1;         // Clones inner data (wrongly optimistic mutation)
 	/// *data += 1;         // Won't clone anything
 	/// *other_data *= 2;   // Won't clone anything
 	///
@@ -156,7 +187,7 @@ impl<T: ?Sized + Clone> DerefMut for CowRc<T> {
 	///
 	/// If there are [`WeakCowRc`] pointers, but no other strong pointer,
 	/// no cloning occurs, but the data is moved and the weak pointers will be disassociated
-	/// (as if the data was cloned and the old `CowRc` strong count dropped to 0):
+	/// (as if the data was cloned and the old `CowRc` strong count dropped from 1 to 0):
 	/// ```
 	/// use optimistic_mutation::rc::CowRc;
 	///
@@ -207,7 +238,7 @@ impl<T: ?Sized> AsRef<Rc<T>> for CowRc<T> {
 	}
 }
 
-impl<T: ?Sized + Clone> AsMut<T> for CowRc<T> {
+impl<T: Clone> AsMut<T> for CowRc<T> {
 	/// Makes a mutable reference into the given `CowRc`. Has the same effect as dereferencing it.
 	///
 	/// Even though [`AsMut`] is supposed to be used to do cheap mutable-to-mutable reference conversion,

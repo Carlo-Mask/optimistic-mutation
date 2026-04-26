@@ -8,7 +8,7 @@ use std::{
 };
 use sugaru::pipeline;
 
-/// Comme un [[T]] mais [`ToOwned`] donne un [`Rc<[T]>`] et non un [`String`]
+/// Just like a [[T]] but [`ToOwned`] returns a [`Rc<[T]>`] and not a [`Vec<T>`]
 #[repr(transparent)]
 #[derive(Eq, PartialEq, Debug, Ord, PartialOrd)]
 pub struct ToCowRcSlice<T> {

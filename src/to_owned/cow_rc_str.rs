@@ -9,7 +9,7 @@ use std::{
 };
 use sugaru::pipeline;
 
-/// Comme un [str] mais [`ToOwned`] donne un [`Rc<str>`] et non un [`String`]
+/// Just like [str] but [`ToOwned`] returns [`Rc<str>`] and not [`String`]
 #[repr(transparent)]
 #[derive(Eq, PartialEq, Debug, Ord, PartialOrd)]
 pub struct ToCowRcStr {
