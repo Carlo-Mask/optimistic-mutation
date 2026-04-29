@@ -37,7 +37,7 @@ use sugaru::pipeline;
 ///     assert_eq!(other_data.id, 3);
 /// }
 /// ```
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CowRc<T: ?Sized> {
 	// Private to avoid name collision with a T containing a field named rc
@@ -225,6 +225,14 @@ impl<T: Clone> DerefMut for CowRc<T> {
 		pipeline!(&mut self.rc => Rc::make_mut)
 	}
 }
+
+// Manually implement because derive needlessly add Clone trait bound to T
+impl<T: ?Sized> Clone for CowRc<T> {
+	fn clone(&self) -> Self {
+		Self { rc: Rc::clone(&self.rc) }
+	}
+}
+
 
 impl<T: ?Sized> AsRef<T> for CowRc<T> {
 	fn as_ref(&self) -> &T {

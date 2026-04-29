@@ -3,10 +3,9 @@ use std::{
 	ops::{Deref, DerefMut},
 	sync::{Arc, Weak},
 };
-
 use sugaru::pipeline;
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub struct CowArc<T: ?Sized> {
 	pub arc: Arc<T>,
 }
@@ -55,18 +54,6 @@ where
 	}
 }
 
-impl<T: ?Sized> AsRef<T> for CowArc<T> {
-	fn as_ref(&self) -> &T {
-		pipeline!(&self.arc => Arc::as_ref)
-	}
-}
-
-impl<T: ?Sized + Clone> AsMut<T> for CowArc<T> {
-	fn as_mut(&mut self) -> &mut T {
-		self
-	}
-}
-
 impl<T: ?Sized> Deref for CowArc<T> {
 	type Target = T;
 
@@ -75,9 +62,28 @@ impl<T: ?Sized> Deref for CowArc<T> {
 	}
 }
 
-impl<T: ?Sized + Clone> DerefMut for CowArc<T> {
+impl<T: Clone> DerefMut for CowArc<T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		pipeline!(&mut self.arc => Arc::make_mut)
+	}
+}
+
+// Manually implement because derive needlessly add Clone trait bound to T
+impl<T: ?Sized> Clone for CowArc<T> {
+	fn clone(&self) -> Self {
+		Self { arc: Arc::clone(&self.arc) }
+	}
+}
+
+impl<T: ?Sized> AsRef<T> for CowArc<T> {
+	fn as_ref(&self) -> &T {
+		pipeline!(&self.arc => Arc::as_ref)
+	}
+}
+
+impl<T: Clone> AsMut<T> for CowArc<T> {
+	fn as_mut(&mut self) -> &mut T {
+		self
 	}
 }
 
