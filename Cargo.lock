@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "optimistic-mutation"
+name = "opportunistic-mutation"
 version = "0.1.0"
 dependencies = [
  "serde",
