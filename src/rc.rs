@@ -8,7 +8,7 @@ use sugaru::pipeline;
 
 /// Small wrapper around a [`Rc<T>`], short for Clone-on-write RC, that allows to call [`Rc::make_mut`] using the `*` dereferencing notation.
 ///
-/// The effect is to allow to eliminate shared mutable memory from your program, that can be difficult to work with, but without eliminating mutations entirely.
+/// The effect is to allow to eliminate shared mutable memory (that can be difficult to work with) from your program, but without eliminating mutations entirely.
 /// You can rest assured your data will not be unexpectedly mutated by another part of your program without sacrificing mutability entirely.
 /// Mutation will be used when possible, that is to say when memory is not shared, otherwise a clone will be used first.
 /// This is referred to as optimistic mutation.
@@ -27,7 +27,7 @@ use sugaru::pipeline;
 ///
 /// fn main() {
 ///     let mut data = CowRc::new(Data { id: 1 });
-///     data.increment_id(); // Cheap in place mutation
+///     data.increment_id(); // Opportunistic cheap in place mutation
 ///     assert_eq!(data.id, 2);
 ///
 ///     let mut other_data = CowRc::clone(&data); // No actual cloning just yet, just a cheap increment count, memory can be safely shared when it is immutable
@@ -163,7 +163,7 @@ impl<T: Clone> DerefMut for CowRc<T> {
 	/// This is also referred to as clone-on-write.
 	///
 	/// If there are no other `CowRc` pointers to this allocation, the inner value will not be cloned.
-	/// This is referred to as optimistic mutation because one can hope the data is unique
+	/// This is referred to as opportunistic mutation because mutation is considered a runtime optimization
 	/// and cheap in place mutation is possible instead of more expensive cloning.
 	/// In addition, any existing [`WeakCowRc`] pointers will be disassociated
 	///
@@ -174,7 +174,7 @@ impl<T: Clone> DerefMut for CowRc<T> {
 	///
 	/// let mut data = CowRc::new(5);
 	///
-	/// *data += 1;         // Won't clone anything (optimistic mutation)
+	/// *data += 1;         // Won't clone anything (opportunistic mutation)
 	/// let mut other_data = CowRc::clone(&data); // Won't clone inner data
 	/// *data += 1;         // Clones inner data (wrongly optimistic mutation)
 	/// *data += 1;         // Won't clone anything
