@@ -3,7 +3,7 @@ use std::{
 	ops::{Deref, DerefMut},
 	rc::{Rc, Weak},
 };
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use sugaru::pipeline;
 
 /// Small wrapper around a [`Rc<T>`], short for Clone-on-write RC, that allows to call [`Rc::make_mut`] using the `*` dereferencing notation.
@@ -237,6 +237,12 @@ impl<T: ?Sized> Debug for CowRc<T> where Rc<T>: Debug {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.rc.fmt(f)
     }
+}
+
+impl<T: ?Sized> Display for CowRc<T> where Rc<T>: Display {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		self.rc.fmt(f)
+	}
 }
 
 impl<T: ?Sized> AsRef<T> for CowRc<T> {
