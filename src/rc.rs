@@ -3,7 +3,7 @@ use std::{
 	ops::{Deref, DerefMut},
 	rc::{Rc, Weak},
 };
-
+use std::fmt::Formatter;
 use sugaru::pipeline;
 
 /// Small wrapper around a [`Rc<T>`], short for Clone-on-write RC, that allows to call [`Rc::make_mut`] using the `*` dereferencing notation.
@@ -37,7 +37,7 @@ use sugaru::pipeline;
 ///     assert_eq!(other_data.id, 3);
 /// }
 /// ```
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CowRc<T: ?Sized> {
 	// Private to avoid name collision with a T containing a field named rc
@@ -227,12 +227,17 @@ impl<T: Clone> DerefMut for CowRc<T> {
 }
 
 // Manually implement because derive needlessly add Clone trait bound to T
-impl<T: ?Sized> Clone for CowRc<T> {
+impl<T: ?Sized> Clone for CowRc<T> where Rc<T>: Clone {
 	fn clone(&self) -> Self {
 		Self { rc: Rc::clone(&self.rc) }
 	}
 }
 
+impl<T: ?Sized> Debug for CowRc<T> where Rc<T>: Debug {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.rc.fmt(f)
+    }
+}
 
 impl<T: ?Sized> AsRef<T> for CowRc<T> {
 	fn as_ref(&self) -> &T {
